@@ -1,0 +1,57 @@
+name: "Upgrade PaaS: wordpress"
+on:
+  push:
+    branches: [ "wordpress/*" ]
+    paths:
+      - ".github/inputs/wordpress/dev/*"
+      - ".github/workflows/wp_dev_upgrade.yml"
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get environment data
+        uses: cloudify-cosmo/environment-data-action@v1.1
+        with:
+          environment-name: $APP_DEPLOYMENT_ID
+          outputs-file: env-data.json
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.x
+      - name: Install jinja2
+        run: |
+          pip3 install --user --upgrade j2cli
+          j2 --version
+      - name: Render upgrade params
+        run: |
+          j2 .github/inputs/wordpress/dev/app.j2 env-data.json -o .github/inputs/wordpress/dev/app.json
+      - name: Upgrade PaaS
+        uses: cloudify-cosmo/execute-workflow-action@v1.1
+        with:
+          environment-name: $APP_DEPLOYMENT_ID
+          workflow: upgrade_release
+          parameters-file: .github/inputs/wordpress/dev/app.json
+      - name: Upload S3 blueprint
+        id: upload-s3-blueprint
+        uses: jrzeszutek/cli-action@v1.2.1
+        with:
+          command: blueprints upload aws-s3/blueprint.yaml -b aws-s3-${{ github.run_id }}
+      - name: Install AWS S3
+        uses: jrzeszutek/install-or-update-action@v1.2.1
+        with:
+          environment-name: wp-dev-${{ secrets.S3_DEPLOYMENT_ID }}
+          blueprint-id: aws-s3-${{ github.run_id }}
+          delete-old-blueprint: true
+          inputs-file: .github/inputs/wordpress/dev/s3.yaml
+          labels: csys-obj-parent:$ENVIRONMENT,csys-obj-type:service
+env:
+  APP_DEPLOYMENT_ID: ${{ secrets.WP_DEV_APPLICATION_ID }}
+  ENVIRONMENT: ${{ secrets.DEV_ENVIRONMENT_ID }}
+  CLOUDIFY_HOST: ${{ secrets.CLOUDIFY_HOST }}
+  CLOUDIFY_USERNAME: ${{ secrets.CLOUDIFY_USERNAME }}
+  CLOUDIFY_PASSWORD: ${{ secrets.CLOUDIFY_PASSWORD }}
+  CLOUDIFY_TENANT: ${{ secrets.CLOUDIFY_TENANT }}
+  CLOUDIFY_SSL: ${{ secrets.CLOUDIFY_SSL }}
+  CLOUDIFY_SSL_TRUST_ALL: ${{ secrets.CLOUDIFY_SSL_TRUST_ALL }}

@@ -1,0 +1,72 @@
+{
+  "node_instance_id": "{{ capabilities.app_node_instance_id }}",
+  "chart": "bitnami/wordpress",
+  "flags": [
+    {
+      "name": "namespace",
+      "value": "wp"
+    }
+  ],
+  "set_values": [
+    {
+      "name": "fullnameOverride",
+      "value": "{{ capabilities.app_name }}"
+    },
+    {
+      "name": "image.registry",
+      "value": "docker.io"
+    },
+    {
+      "name": "image.repository",
+      "value": "bitnami/wordpress"
+    },
+    {
+      "name": "image.tag",
+      "value": "5.8.2"
+    },
+    {
+      "name": "resources.requests.cpu",
+      "value": "300m"
+    },
+    {
+      "name": "resources.requests.memory",
+      "value": "512Mi"
+    },
+    {
+      "name": "wordpressUsername",
+      "value": "admin"
+    },
+    {
+      "name": "wordpressPassword",
+      "value": "Cl0ud1fY!"
+    },
+    {
+      "name": "wordpressEmail",
+      "value": "user@cloudify.co"
+    },
+    {
+      "name": "mariadb.enabled",
+      "value": "false"
+    },
+    {
+      "name": "externalDatabase.host",
+      "value": "{{ capabilities.app_values.externalDatabase.host }}"
+    },
+    {
+      "name": "externalDatabase.port",
+      "value": "{{ capabilities.app_values.externalDatabase.port }}"
+    },
+    {
+      "name": "externalDatabase.user",
+      "value": "{{ capabilities.app_values.externalDatabase.user }}"
+    },
+    {
+      "name": "externalDatabase.password",
+      "value": "{{ capabilities.app_values.externalDatabase.password }}"
+    },
+    {
+      "name": "externalDatabase.database",
+      "value": "{{ capabilities.app_values.externalDatabase.database }}"
+    }
+  ]
+}

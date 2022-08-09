@@ -1,0 +1,118 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+imports:
+  - https://cloudify.co/spec/cloudify/6.2.0/types.yaml
+  - plugin:cloudify-helm-plugin?version= >=0.2.5
+  - plugin:cloudify-kubernetes-plugin
+
+labels:
+  csys-obj-type:
+    values:
+      - service
+
+  csys-obj-parent:
+    values:
+      - { concat: [{ get_input: env_type }, "-eks"] }
+
+inputs:
+  env_type:
+    type: string
+    constraints:
+      - valid_values:
+        - qa
+        - dev
+
+  resources:
+    description: |
+      Resources requests
+    type: dict
+    default:
+      cpu: 300m
+      memory: 512Mi
+
+  ttl:
+    description: |
+      Minutes of time to live after which the environment will be uninstalled
+    type: integer
+    default: 180
+
+dsl_definitions:
+  client_config: &kube_config
+    configuration:
+      api_options:
+        host: { get_environment_capability: endpoint }
+        api_key: { get_environment_capability: token }
+        ssl_ca_cert: { get_environment_capability: ssl_ca_cert }
+
+node_types:
+  custom.nodes.ttl:
+    derived_from: cloudify.nodes.ApplicationModule
+    properties:
+      ttl:
+        type: integer
+        description: |
+          Minutes of time to live after which the environment will be uninstalled
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          implementation: scripts/ttl/enable.py
+          executor: central_deployment_agent
+        stop:
+          implementation: scripts/ttl/disable.py
+          executor: central_deployment_agent
+
+node_templates:
+  ttl:
+    type: custom.nodes.ttl
+    properties:
+      ttl: { get_input: ttl }
+
+  rds:
+    type: cloudify.nodes.SharedResource
+    properties:
+      resource_config:
+        deployment:
+          id: { concat: [{ get_input: env_type }, "-rds"] }
+
+  helm_binary:
+    type: cloudify.nodes.helm.Binary
+    properties:
+      use_existing_resource: false
+      installation_source: { get_secret: helm_installation_source }
+
+  repo:
+    type: cloudify.nodes.helm.Repo
+    properties:
+      resource_config:
+        name: bitnami
+        repo_url: https://charts.bitnami.com/bitnami
+    relationships:
+      - target: helm_binary
+        type: cloudify.helm.relationships.run_on_host
+
+  app_svc:
+    type: cloudify.kubernetes.resources.Service
+    properties:
+      client_config: *kube_config
+      use_external_resource: true
+      allow_node_redefinition: false
+      options:
+        namespace: { get_input: namespace }
+      definition:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: { get_input: app_name }
+    relationships:
+      - type: cloudify.relationships.depends_on
+        target: app
+
+capabilities:
+  url:
+    value: { concat: ["http://", { get_attribute: [app_svc, kubernetes, status, load_balancer, ingress, 0, hostname] }] }
+  app_node_instance_id:
+    value: { get_attribute: [app, node_instance_id] }
+  app_values:
+    value: { get_attribute: [app, install_output, config] }
+  app_name:
+    value: { get_input: app_name }

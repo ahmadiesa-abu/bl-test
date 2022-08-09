@@ -1,0 +1,127 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+imports:
+  - https://cloudify.co/spec/cloudify/6.3.0.dev1/types.yaml
+  - plugin:cloudify-aws-plugin?version= >=2.9.0
+
+labels:
+  csys-obj-type:
+    values:
+      - on-demand-resource
+
+  csys-obj-parent:
+    values:
+      - { concat: [{ get_input: env_type }, "-eks"] }
+
+inputs:
+  env_type:
+    type: string
+    constraints:
+      - valid_values:
+        - qa
+        - dev
+
+  db_name:
+    description: |
+      RDS DB Name
+    type: string
+    default: db
+
+  master_username:
+    description: |
+      Master username for RDS DB
+    type: string
+    default: root
+
+  master_password:
+    description: |
+      Master password for RDS DB
+    type: string
+    default: Password1234
+
+dsl_definitions:
+  client_config: &client_config
+    aws_access_key_id: { get_secret: aws_access_key_id }
+    aws_secret_access_key: { get_secret: aws_secret_access_key }
+    region_name: { get_environment_capability: region_name }
+
+node_templates:
+  rds_mysql_instance:
+    type: cloudify.nodes.aws.rds.Instance
+    properties:
+      resource_id: { concat: [ { get_input: db_name }, '-instance' ] }
+      client_config: *client_config
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            resource_config:
+              DBInstanceClass: db.t2.small
+              Engine: mysql
+              EngineVersion: 5.7.38
+              AvailabilityZone: { concat: [ { get_environment_capability: region_name }, 'b' ] }
+              StorageType: gp2
+              AllocatedStorage: 10
+              DBName: { get_input: db_name }
+              MasterUsername: { get_input: master_username }
+              MasterUserPassword: { get_input: master_password }
+              VpcSecurityGroupIds:
+                - { get_environment_capability: cluster_security_group }
+              DBSubnetGroupName: { get_attribute: [rds_subnet_group, aws_resource_id] }
+    relationships:
+    - type: cloudify.relationships.aws.rds.instance.connected_to
+      target: rds_subnet_group
+
+  rds_subnet_group:
+    type: cloudify.nodes.aws.rds.SubnetGroup
+    properties:
+      resource_id: { concat: [ { get_input: db_name }, '-subnet-group' ] }
+      resource_config:
+        kwargs:
+          DBSubnetGroupDescription: MySQL5.7 Subnet Group for Dev
+          SubnetIds:
+            - { get_environment_capability: private_subnet_01 }
+            - { get_environment_capability: private_subnet_02 }
+      client_config: *client_config
+
+  rds_security_group_ingress:
+    type: cloudify.nodes.aws.ec2.SecurityGroupRuleIngress
+    properties:
+      client_config: *client_config
+      resource_config:
+        kwargs:
+          GroupId: { get_environment_capability: cluster_security_group }
+          IpPermissions:
+           - IpProtocol: "tcp"
+             FromPort: 3306
+             ToPort: 3306
+             IpRanges:
+              - CidrIp: 0.0.0.0/0
+
+  rds_security_group_egress:
+    type: cloudify.nodes.aws.ec2.SecurityGroupRuleEgress
+    properties:
+      client_config: *client_config
+      resource_config:
+        kwargs:
+          GroupId: { get_environment_capability: node_security_group }
+          IpPermissions:
+           - IpProtocol: "tcp"
+             FromPort: 3306
+             ToPort: 3306
+             IpRanges:
+              - CidrIp: 0.0.0.0/0
+
+capabilities:
+  deployment_id:
+    value: { get_sys: [deployment, id] }
+  endpoint:
+    value: { get_attribute: [rds_mysql_instance, Endpoint, Address] }
+  port:
+    value: { get_attribute: [rds_mysql_instance, Endpoint, Port] }
+  username:
+    value: { get_input: master_username }
+  password:
+    value: { get_input: master_password }
+  database:
+    value: { get_input: db_name }

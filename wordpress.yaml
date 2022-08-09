@@ -1,0 +1,88 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+imports:
+  - common.yaml
+
+inputs:
+  app_name:
+    description: |
+      Name of the application
+    type: string
+    default: wp
+
+  namespace:
+    type: string
+    default: wp
+  
+  image:
+    description: |
+      Docker image configuration
+    type: dict
+    default:
+      tag: "5.8.2"
+    # constraints:
+    #   - valid_values:
+    #     - tag: "5.8.2"
+    #     - tag: "5.8.3"
+
+dsl_definitions:
+  client_config: &kube_config
+    configuration:
+      api_options:
+        host: { get_environment_capability: endpoint }
+        api_key: { get_environment_capability: token }
+        ssl_ca_cert: { get_environment_capability: ssl_ca_cert }
+
+node_templates:
+  app:
+    type: cloudify.nodes.helm.Release
+    properties:
+      client_config: *kube_config
+      resource_config:
+        name: { get_input: app_name }
+        chart: bitnami/wordpress
+        set_values:
+          - name: fullnameOverride
+            value: { get_input: app_name }
+          - name: image.registry
+            value: "docker.io"
+          - name: image.repository
+            value: "bitnami/wordpress"
+          - name: image.tag
+            value: { get_input: [ image, tag ] }
+          - name: resources.requests.cpu
+            value: { get_input: [ resources, cpu ] }
+          - name: resources.requests.memory
+            value: { get_input: [ resources, memory ] }
+          - name: wordpressUsername
+            value: "admin"
+          - name: wordpressPassword
+            value: "Cl0ud1fY!"
+          - name: wordpressEmail
+            value: "user@cloudify.co"
+          - name: mariadb.enabled
+            value: "false"
+          - name: externalDatabase.host
+            value: { get_attribute: [ rds, capabilities, endpoint ] }
+          - name: externalDatabase.port
+            value: { concat: [{ get_attribute: [ rds, capabilities, port ] }] }
+          - name: externalDatabase.user
+            value: { get_attribute: [ rds, capabilities, username ] }
+          - name: externalDatabase.password
+            value: { get_attribute: [ rds, capabilities, password ] }
+          - name: externalDatabase.database
+            value: { get_attribute: [ rds, capabilities, database ] }
+        flags:
+          - name: namespace
+            value: { get_input: namespace }
+    relationships:
+      - type: cloudify.helm.relationships.run_on_host
+        target: helm_binary
+      - type: cloudify.relationships.depends_on
+        target: repo
+      - type: cloudify.relationships.connected_to
+        target: rds
+
+capabilities:
+  login_page:
+    value: { concat: ["http://", { get_attribute: [app_svc, kubernetes, status, load_balancer, ingress, 0, hostname] }, "/wp-login.php"] }
